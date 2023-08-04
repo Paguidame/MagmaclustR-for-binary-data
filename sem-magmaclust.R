@@ -34,7 +34,7 @@
 #'
 #' @examples
 #' TRUE
-se_step2<- function(db,
+se_step<- function(db,
                    mu_prior,
                    m_k,
                    kern_k,
