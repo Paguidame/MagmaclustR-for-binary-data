@@ -1,6 +1,6 @@
 
 
-#' Training MagmaClust with a Stochastique EM algorithm
+#' Training MagmaClust with a Stochastique  EM algorithm
 #'
 #' The hyper-parameters and the hyper-posterior distributions involved in
 #' MagmaClust can be learned thanks to a VEM algorithm implemented in
@@ -143,8 +143,8 @@ train_magmaclust_cat <- function(data,
                               common_hp_i = TRUE,
                               grid_inputs = NULL,
                               pen_diag = 1e-10,
-                              n_iter_max = 30,
-                              cv_threshold = 1e-2,
+                              n_iter_max = 100,
+                              cv_threshold = 1e-3,
                               fast_approx = FALSE) {
 
   ## Check for the correct format of the training data
@@ -472,8 +472,8 @@ train_magmaclust_cat <- function(data,
     t_i_1 <- Sys.time()
     # run the SEM algorithm in case of categorial for MagmaclustR
 
-      ## VE-Step of MagmaClust
-      post <- se_step(
+      ## SE-Step of MagmaClust
+      post <- se_step2(
         data,
         mu_k,
         m_k,
@@ -507,8 +507,8 @@ train_magmaclust_cat <- function(data,
         break
       }
 
-      ## VM-Step of MagmaClsut
-      new_hp <- sm_step(post$y_star,
+      ## SM-Step of MagmaClsut
+      new_hp <- sm_step2(post$y_star,
                         hp_k,
                         hp_i,
                         list_mu_param = post[c("mean","cov","mixture")],
