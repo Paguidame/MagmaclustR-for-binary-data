@@ -29,8 +29,9 @@ elbo_clust_multi_GP<- function( hp,
 
 
   if(categorial){
-    names_ki<- latents$affectations%>%names()
-    names_k<-names_ki[names_ki!="ID"]
+    #names_ki<- latents$affectations%>%names()
+    #names_k<-names_ki[names_ki!="ID"]
+    names_k <- latents$mu %>% names()
   }else{
     names_k <- hyperpost$mean %>% names()
   }
@@ -55,14 +56,15 @@ elbo_clust_multi_GP<- function( hp,
   if(categorial){
     for (k in (names_k))
     {
-      z_i_k <- latents$affectations%>%
+      z_i_k <- latents$Z%>%
         dplyr::filter(.data$ID == i)%>%
         dplyr::pull(k)
-      mu_k_i <- latents$mu[[k]] %>%
+      mean_mu_k <- latents$mu[[k]] %>%
         dplyr::filter(.data$Reference %in% t_i)%>%
         dplyr::pull(.data$Output)
-      corr1 <- corr1 + z_i_k * mu_k_i
-      corr2 <- corr2 + z_i_k *(mu_k_i %*% t(mu_k_i))
+      corr1 <- corr1 + z_i_k * mean_mu_k
+      corr2 <- corr2 + z_i_k *
+        (mean_mu_k %*% t(mean_mu_k))
     }
     (LL_norm - y_i %*% inv %*% corr1 + 0.5 * sum(inv * corr2)) %>% return()
   }else{
@@ -177,8 +179,9 @@ elbo_clust_multi_GP_common_hp_i <- function(hp,
 
 
   if(categorial){
-    names_ki<- latents$affectations%>%names()
-    names_k<-names_ki[names_ki!="ID"]
+    #names_ki<- latents$affectations%>%names()
+    #names_k<-names_ki[names_ki!="ID"]
+    names_k <- latents$mu %>% names()
   }else{
     names_k <- hyperpost$mean %>% names()
   }
@@ -202,22 +205,20 @@ elbo_clust_multi_GP_common_hp_i <- function(hp,
 
     corr1 <- 0
     corr2 <- 0
+    inv <- kern_to_inv(inputs_i, kern, hp, pen_diag)
 
     if(categorial){
       for (k in (names_k))
       {
-        z_i_k <- latents$affectations%>%
+        z_i_k <- latents$Z%>%
           dplyr::filter(.data$ID == i)%>%
           dplyr::pull(k)
-        mu_k_i <- latents$mu[[k]] %>%
+        mean_mu_k <- latents$mu[[k]] %>%
           dplyr::filter(.data$Reference%in% input_i)%>%
           dplyr::pull(.data$Output)
-        corr1 <- corr1 + z_i_k * mu_k_i
-        corr2 <- corr2 + z_i_k *(mu_k_i %*% t(mu_k_i))
+        corr1 <- corr1 + z_i_k * mean_mu_k
+        corr2 <- corr2 + z_i_k *(mean_mu_k %*% t(mean_mu_k))
       }
-
-      inv <- kern_to_inv(inputs_i, kern, hp, pen_diag)
-
       ## Classic Gaussian centred log-likelihood
 
       LL_norm <- -dmnorm(output_i, rep(0, length(output_i)), inv, log = T)
@@ -245,9 +246,6 @@ elbo_clust_multi_GP_common_hp_i <- function(hp,
         corr1 <- corr1 + tau_i_k * mean_mu_k
         corr2 <- corr2 + tau_i_k *(mean_mu_k %*% t(mean_mu_k) + post_cov_i)
       }
-
-
-      inv <- kern_to_inv(inputs_i, kern, hp, pen_diag)
 
       ## Classic Gaussian centred log-likelihood
 
@@ -355,8 +353,9 @@ elbo_monitoring_VEM<- function(hp_k,
     if(categorial){
       for (i in unique(db$ID)) {
         ## Extract the probability of the i-th indiv to be in the k-th cluster
-        z_i_k <- latents$affectations %>%
-          dplyr::filter(.data$ID == i) %>% dplyr::pull(k)
+        z_i_k <- latents$Z %>%
+          dplyr::filter(.data$ID == i) %>%
+          dplyr::pull(k)
         ## To avoid numerical issues if evaluating log(0/0)
         log_frac <- ifelse((z_i_k == 0 | (pi_k == 0)), 0, log(pi_k / z_i_k))
 
@@ -388,5 +387,5 @@ elbo_monitoring_VEM<- function(hp_k,
 
   sum_corr_k <- sapply(names(m_k), floop3) %>% sum()
 
-  return(- sum_ll_k - sum_ll_i + sum_corr_k)
+  return(-sum_ll_k - sum_ll_i + sum_corr_k)
 }

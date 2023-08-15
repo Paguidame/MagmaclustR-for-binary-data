@@ -41,7 +41,7 @@ se_step<- function(db,
                    kern_i,
                    hp_k,
                    hp_i,
-                   old_affectations,
+                   old_z,
                    iter,
                    pen_diag
 ) {
@@ -64,24 +64,11 @@ se_step<- function(db,
   t_clust <- tidyr::expand_grid("ID" = names(m_k),
                                 all_inputs )
 
-  ## Compute all the inverse covariance matrices
-  list_inv_k <- list_kern_to_inv(t_clust, kern_k, hp_k, pen_diag)
-  list_inv_i <- list_kern_to_inv(db, kern_i, hp_i, pen_diag)
-  list_cov_i<-  list_kern_to_cov(db, kern_i, hp_i)
-
 
   # floo<-function(i){
   # extract mixture probabilité for individual "i"
   # tau_i <- mixture%>%
   # dplyr::filter(ID == i) %>% dplyr:: select(-.data$ID)%>% unlist()%>%unname()
-
-  # simule affectations variable for individual "i"
-  # affectations_i<-rmultinom(1,1,prob = tau_i)
-  # tibble::as_tibble_row(c(i,affectations_i),.name_repair="unique")%>% suppressMessages()
-  #}
-  # affectations<-lapply(ID_i,floo)%>% dplyr::bind_rows()
-
-  # names(affectations) <- names(mixture)
 
 
   # Simulate the vector of variables (y_star,z,mu) in categorial case
@@ -90,6 +77,10 @@ se_step<- function(db,
 
   ID_i<-  db$ID %>% unique()
   ID_k <- names(m_k)
+  ## Compute all the inverse covariance matrices
+  list_inv_k <- list_kern_to_inv(t_clust, kern_k, hp_k, pen_diag)
+  list_inv_i <- list_kern_to_inv(db, kern_i, hp_i, pen_diag)
+  list_cov_i<-  list_kern_to_cov(db, kern_i, hp_i)
 
   floop4<- function(i) {
     ## Extract the i-th specific reference inputs
@@ -111,44 +102,52 @@ se_step<- function(db,
     bornsup<-rep(0,n_i)
     for(j in 1:n_i){
       if(y_i[j]==0){
-        borninf[j]<--Inf
-        bornsup[j]<-0
+        borninf[j] <- -Inf
+        bornsup[j] <- 0
       }else{
-        borninf[j]<-0
-        bornsup[j]<-+Inf
+        borninf[j] <- 0
+        bornsup[j] <- +Inf
       }
     }
-    y_star=rep(1,n_i)
-    for(k in ID_k){
 
-      # Extract the corresponding latents variables for individual "i"
+    # Extract the corresponding latents variables for individual "i"
 
-      z_k <- old_affectations %>% dplyr:: select(.data$ID,k)
-      z_i_k<- as.numeric(z_k %>% dplyr::filter(.data$ID == i)
-                         %>% dplyr::pull(k))
-      # Extract the mean values associated with the i-th specific inputs
-      # in cluster k : (mu_k(t_i))
+    z_i <- old_z %>% dplyr::filter(.data$ID == i) %>% dplyr::select(-.data$ID)
+    z_i_k<- names(z_i)[which(z_i==1)]
+    # Extract the mean values associated with the i-th specific inputs
+    # in cluster k : (mu_k(t_i))
 
-      mu_k_i <- mu_prior[[k]]%>%
-        dplyr::filter(.data$Reference %in% input_i) %>%
-        dplyr::pull(.data$Output)
-      y_star<-y_star*(rmvnorm(1,
-                              mu_k_i,
-                              cov_i) %>% as.vector()
-                      /pmvnorm(lower=borninf,
-                               upper=bornsup,
-                               mean=mu_k_i,
-                               corr=NULL,
-                               sigma=cov_i,
-                               keepAttr= FALSE))^z_i_k
+    mean_k_i <- mu_prior[[z_i_k]]%>%
+      dplyr::filter(.data$Reference %in% input_i) %>%
+      dplyr::pull(.data$Output)
+    y_star <- rmvnorm(1,
+                      mean_k_i,
+                      cov_i) %>% as.vector()/pmvnorm(lower=borninf,
+                                                     upper=bornsup,
+                                                     mean=mean_k_i,
+                                                     corr=NULL,
+                                                     sigma=cov_i,
+                                                     keepAttr= FALSE)
 
+
+
+    for(j in 1:n_i){
+      if(y_star[j] >= 0 & y_i[j] == 0){
+        y_star[j] <- - y_star[j]
+      }else if(y_star[j] < 0 & y_i[j] == 1){
+        y_star[j] <- - y_star[j]
+      }
     }
+
+
 
     tibble::tibble("ID"=rep(i,n_i),
                    inputs_i,
                    "Output" = y_star)%>% return()
   }
+
   y_star <-do.call(dplyr::bind_rows,lapply(ID_i, floop4))
+
 
 
 
@@ -161,7 +160,7 @@ se_step<- function(db,
   ## Update each mu_k parameters for each cluster ##
   floop <- function(k) {
     post_inv <- list_inv_k[[k]]
-    z_k <- old_affectations %>% dplyr:: select(.data$ID,k)
+    z_k <- old_z %>% dplyr:: select(.data$ID,k)
     for (i in list_inv_i %>% names())
     {
       # Extract the corresponding latents variables for individual "i"
@@ -190,7 +189,7 @@ se_step<- function(db,
   floop2 <- function(k) {
     prior_mean <- m_k[[k]]
     prior_inv <- list_inv_k[[k]]
-    z_k <- old_affectations %>% dplyr:: select(.data$ID,k)
+    z_k <- old_z %>% dplyr:: select(.data$ID,k)
     weighted_mean <- prior_inv %*% prior_mean
 
     for (i in list_inv_i %>% names())
@@ -232,25 +231,25 @@ se_step<- function(db,
 
   ## Update mixture (skip first iteration to avoid bad HP initialisation issues)
 
-mixture <- update_mixture(    y_star,
-                              mu_simul,
-                              cov_k = NULL,
-                              hp_i,
-                              kern_i,
-                              prop_mixture_k,
-                              pen_diag,
-                              categorial=TRUE)
+  mixture <- update_mixture(    y_star,
+                                mu_simul,
+                                cov_k = NULL,
+                                hp_i,
+                                kern_i,
+                                prop_mixture_k,
+                                pen_diag,
+                                categorial=TRUE)
 
   # simulate z_i variables
 
-  affectations <- simu_affectations(mixture)
+  z <- simu_affectations(mixture)
 
 
 
   list("mean" = mean_k,
        "cov" = cov_k,
        "mixture" = mixture,
-       "affectations" = affectations,
+       "Z" = z,
        "y_star" = y_star,
        "mu" = mu_simul) %>% return()
 
@@ -302,15 +301,13 @@ mixture <- update_mixture(    y_star,
 sm_step <- function(db,
                     old_hp_k,
                     old_hp_i,
-                    list_mu_param,
                     list_latents,
                     kern_k,
                     kern_i,
                     m_k,
                     common_hp_k,
                     common_hp_i,
-                    pen_diag
-){
+                    pen_diag){
 
   list_ID_k <- names(m_k)
   list_ID_i <- unique(db$ID)
@@ -397,7 +394,7 @@ sm_step <- function(db,
   }
 
   ## Compute the prop mixture of each cluster
-  prop_mixture <- list_latents$affectations %>%
+  prop_mixture <- list_latents$Z %>%
     dplyr::select(-.data$ID) %>%colMeans()
 
   ## Check whether hyper-parameters are common to all cluster
@@ -540,6 +537,7 @@ update_mixture <- function(db,
         mean_k_i <- mean_k[[k]] %>%
           dplyr::filter(.data$Reference %in% input_i) %>%
           dplyr::pull(.data$Output)
+
         mat_elbo[c_k, c_i] <- -logL_GP_mod(
           hp_i,
           db_i,
@@ -583,3 +581,54 @@ update_mixture <- function(db,
     dplyr::mutate("ID" = ID_i, .before = 1) %>%
     return()
 }
+
+
+
+#' affectation variables  simulations
+#'
+#' Provide an initial affectations of the individuals/tasks in a dataset
+#' into a definite number of clusters.
+#'
+#' @param data A tibble or data frame. Required columns: \code{ID}, \code{Input}
+#'    , \code{Output}.
+#'
+#' @param mixture A tibble indicating for each \code{ID} in which cluster
+#'  it belongs after a kmeans initialisation.
+#'
+#' @return A tibble indicating for each \code{ID} in which cluster it belongs
+#'    after a kmeans initialisation.
+#'
+#' @keywords internal
+#'
+#' @examples
+#' TRUE
+#'
+simu_affectations<- function(mixture){
+
+  ID_i <- unique(mixture$ID)
+  ID_k <- names(mixture) %>% setdiff("ID")
+  mat_elbo <- matrix(NA, nrow = length(ID_k), ncol = length(ID_i))
+  c_i <- 0
+
+  for (i in ID_i){
+    c_i <- c_i + 1
+    # extract mixture probabilité for individual "i"
+
+    tau_i <- mixture %>% dplyr::filter(ID == i) %>%
+      dplyr::select(-.data$ID) %>%
+      unlist() %>% as.numeric()
+
+    ## Extract the covariance values associated with the i-th specific inputs
+    mat_elbo[, c_i] <- rmultinom(1,1,prob = tau_i)
+
+  }
+  mat_elbo %>% `rownames<-`(ID_k) %>% t() %>% round(5) %>%
+    tibble::as_tibble() %>% dplyr::mutate("ID" = ID_i, .before = 1) %>% return()
+
+}
+
+
+
+
+
+

@@ -232,7 +232,7 @@ gr_clust_multi_GP_common_hp_i <- function(hp,
     if(categorial){
       for (k in (names_k))
       {
-        z_i_k <- latents$affectations %>%
+        z_i_k <- latents$Z %>%
           dplyr::filter(.data$ID == i) %>%
           dplyr::pull(k)
         mean_mu_k <- latents$mu[[k]] %>%
