@@ -141,7 +141,7 @@ train_magmaclust_cat <- function(data,
                                  common_hp_i = TRUE,
                                  grid_inputs = NULL,
                                  pen_diag = 1e-10,
-                                 n_iter_max = 10,
+                                 n_iter_max = 25,
                                  cv_threshold = 1e-3,
                                  fast_approx = FALSE) {
 
@@ -452,7 +452,9 @@ train_magmaclust_cat <- function(data,
   # Initialize the affectations variables
 
   old_z <- simu_affectations(mixture)
-
+  while (sum(old_z[,"K1"]) < 2 |sum(old_z[,"K2"]) < 2 | sum(old_z[,"K3"]) < 2){
+    old_z <- simu_affectations(mixture)
+  }
 
   hp_k[["prop_mixture"]] <- old_z %>%
     dplyr::select(-.data$ID) %>%
@@ -548,15 +550,15 @@ train_magmaclust_cat <- function(data,
       diff_moni <- -Inf
     }
 
-    if (diff_moni < 0) {
-      warning("Likelihood descreased")
-    }
+    #if (diff_moni < 0) {
+    #warning("Likelihood descreased")
+    #}
 
     ## Update HPs values and the elbo monitoring
     hp_k <- new_hp_k
     hp_i <- new_hp_i
     mu_k <- post$mu
-    mixture <- post$mixture
+    #mixture <- post$mixture
     old_z <- post$Z
     elbo_monitoring <- new_elbo_monitoring
 
