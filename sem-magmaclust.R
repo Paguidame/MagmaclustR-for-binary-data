@@ -35,15 +35,15 @@
 #' @examples
 #' TRUE
 se_step<- function(db,
-                   mu_prior,
-                   m_k,
-                   kern_k,
-                   kern_i,
-                   hp_k,
-                   hp_i,
-                   old_z,
-                   iter,
-                   pen_diag
+                    mu_prior,
+                    m_k,
+                    kern_k,
+                    kern_i,
+                    hp_k,
+                    hp_i,
+                    old_z,
+                    iter,
+                    pen_diag
 ) {
 
   ## Extract the union of all reference inputs provided in the training data
@@ -64,7 +64,7 @@ se_step<- function(db,
   t_clust <- tidyr::expand_grid("ID" = names(m_k),
                                 all_inputs )
 
-
+  #old_z <- simu_affectations(old_mixture)
   # floo<-function(i){
   # extract mixture probabilité for individual "i"
   # tau_i <- mixture%>%
@@ -81,6 +81,7 @@ se_step<- function(db,
   list_inv_k <- list_kern_to_inv(t_clust, kern_k, hp_k, pen_diag)
   list_inv_i <- list_kern_to_inv(db, kern_i, hp_i, pen_diag)
   list_cov_i<-  list_kern_to_cov(db, kern_i, hp_i)
+
 
   floop4<- function(i) {
     ## Extract the i-th specific reference inputs
@@ -120,38 +121,22 @@ se_step<- function(db,
     mean_k_i <- mu_prior[[z_i_k]]%>%
       dplyr::filter(.data$Reference %in% input_i) %>%
       dplyr::pull(.data$Output)
-    y_star <- rmvnorm(1,
-                      mean_k_i,
-                      cov_i) %>% as.vector()/pmvnorm(lower=borninf,
-                                                     upper=bornsup,
-                                                     mean=mean_k_i,
-                                                     corr=NULL,
-                                                     sigma=cov_i,
-                                                     keepAttr= FALSE)
-
-
-
-    for(j in 1:n_i){
-      if(y_star[j] >= 0 & y_i[j] == 0){
-        y_star[j] <- - y_star[j]
-      }else if(y_star[j] < 0 & y_i[j] == 1){
-        y_star[j] <- - y_star[j]
-      }
-    }
-
-
+    y_stare <- tmvtnorm :: rtmvnorm(1,
+                                    mean = mean_k_i,
+                                    sigma = cov_i,
+                                    lower= borninf,
+                                    upper= bornsup,
+                                    algorithm="gibbs") %>% as.vector()
 
     tibble::tibble("ID"=rep(i,n_i),
                    inputs_i,
-                   "Output" = y_star)%>% return()
+                   "Output" = y_stare)%>% return()
   }
 
   y_star <-do.call(dplyr::bind_rows,lapply(ID_i, floop4))
 
 
-
-
-
+  list_inv_i <- list_kern_to_inv(y_star, kern_i, hp_i, pen_diag)
   ## Create a named list of Output values for all individuals
 
   list_output_i <- base::split(y_star$Output, list(y_star$ID))
@@ -219,20 +204,20 @@ se_step<- function(db,
     m_k<- mean_k[[k]]%>% dplyr::pull(.data$Output)
     c_k<-cov_k[[k]]
 
-    mu_simul<- rmvnorm(1,m_k,c_k)%>% as.vector()
+    mu_simule<- rmvnorm(1,m_k,c_k)%>% as.vector()
     mu_simul<- tibble::tibble(all_inputs,
-                              "Output" = mu_simul)
+                              "Output" = mu_simule)
   }
-  mu_simul<- lapply(ID_k, floop3)
+  mu_k<- lapply(ID_k, floop3)
 
-  names(mu_simul)<-ID_k
+  names(mu_k)<-ID_k
 
 
 
   ## Update mixture (skip first iteration to avoid bad HP initialisation issues)
 
   mixture <- update_mixture(    y_star,
-                                mu_simul,
+                                mu_k,
                                 cov_k = NULL,
                                 hp_i,
                                 kern_i,
@@ -242,16 +227,16 @@ se_step<- function(db,
 
   # simulate z_i variables
 
-  z <- simu_affectations(mixture)
+  Z <- simu_affectations(mixture)
 
 
 
   list("mean" = mean_k,
        "cov" = cov_k,
        "mixture" = mixture,
-       "Z" = z,
+       "Z" = Z,
        "y_star" = y_star,
-       "mu" = mu_simul) %>% return()
+       "mu" = mu_k) %>% return()
 
 }
 
@@ -299,15 +284,15 @@ se_step<- function(db,
 #' @examples
 #' TRUE
 sm_step <- function(db,
-                    old_hp_k,
-                    old_hp_i,
-                    list_latents,
-                    kern_k,
-                    kern_i,
-                    m_k,
-                    common_hp_k,
-                    common_hp_i,
-                    pen_diag){
+                     old_hp_k,
+                     old_hp_i,
+                     list_latents,
+                     kern_k,
+                     kern_i,
+                     m_k,
+                     common_hp_k,
+                     common_hp_i,
+                     pen_diag){
 
   list_ID_k <- names(m_k)
   list_ID_i <- unique(db$ID)
@@ -362,7 +347,7 @@ sm_step <- function(db,
       tibble::as_tibble_row() %>%
       tidyr::uncount(weights = length(list_ID_i)) %>%
       dplyr::mutate("ID" = list_ID_i, .before = 1)
-  } else {
+  }else {
     loop2 <- function(i) {
       ## Extract the hyper-parameters associated with the i-th individual
       par_i <- old_hp_i %>%
@@ -423,7 +408,7 @@ sm_step <- function(db,
       tidyr::uncount(weights = length(list_ID_k)) %>%
       dplyr::mutate("ID" = list_ID_k, .before = 1) %>%
       dplyr::mutate("prop_mixture" = prop_mixture)
-  } else {
+  }else {
     loop <- function(k) {
       ## Extract the hyper-parameters associated with the k-th cluster
       par_k <- old_hp_k %>%
@@ -626,9 +611,3 @@ simu_affectations<- function(mixture){
     tibble::as_tibble() %>% dplyr::mutate("ID" = ID_i, .before = 1) %>% return()
 
 }
-
-
-
-
-
-
