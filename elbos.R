@@ -53,6 +53,7 @@ elbo_clust_multi_GP<- function( hp,
 
   corr1 <- 0
   corr2 <- 0
+  #LL_norm2 <- 0
   if(categorial){
     for (k in (names_k))
     {
@@ -65,7 +66,9 @@ elbo_clust_multi_GP<- function( hp,
       corr1 <- corr1 + z_i_k * mean_mu_k
       corr2 <- corr2 + z_i_k *
         (mean_mu_k %*% t(mean_mu_k))
+      #LL_norm2 <- LL_norm2 - z_i_k * dmnorm(y_i, mean_mu_k, inv, log = TRUE)
     }
+    #LL_norm2 %>% return()
     (LL_norm - y_i %*% inv %*% corr1 + 0.5 * sum(inv * corr2)) %>% return()
   }else{
     for (k in (names_k))
@@ -205,6 +208,7 @@ elbo_clust_multi_GP_common_hp_i <- function(hp,
 
     corr1 <- 0
     corr2 <- 0
+    #LL_norm2 <- 0
     inv <- kern_to_inv(inputs_i, kern, hp, pen_diag)
 
     if(categorial){
@@ -218,6 +222,7 @@ elbo_clust_multi_GP_common_hp_i <- function(hp,
           dplyr::pull(.data$Output)
         corr1 <- corr1 + z_i_k * mean_mu_k
         corr2 <- corr2 + z_i_k *(mean_mu_k %*% t(mean_mu_k))
+        # LL_norm2 <- LL_norm2 - z_i_k * dmnorm(output_i,mean_mu_k,inv,log = TRUE)
       }
       ## Classic Gaussian centred log-likelihood
 
@@ -322,10 +327,15 @@ elbo_monitoring_VEM<- function(hp_k,
   sum_ll_k <- sapply(names(m_k), floop) %>% sum()
 
   floop2 <- function(i) {
+
+    t_i <- db %>%
+      dplyr::filter(.data$ID == i) %>%
+      dplyr::pull(.data$Reference)
+
     if(categorial){
       elbo_clust_multi_GP(
         hp_i[hp_i$ID == i, ],
-        db=latents$y_star %>% dplyr::filter(.data$ID == i),
+        latents$y_star %>% dplyr::filter(.data$ID == i),
         hyperpost=NULL,
         kern_i,
         pen_diag,
@@ -356,8 +366,8 @@ elbo_monitoring_VEM<- function(hp_k,
         z_i_k <- latents$Z %>%
           dplyr::filter(.data$ID == i) %>%
           dplyr::pull(k)
-        ## To avoid numerical issues if evaluating log(0/0)
-        log_frac <- ifelse((z_i_k == 0 | (pi_k == 0)), 0, log(pi_k / z_i_k))
+        ## To avoid numerical issues if evaluating log(0)
+        log_frac <- ifelse((pi_k == 0),0, log(pi_k))
 
         sum_tau <- sum_tau + z_i_k * log_frac
       }
@@ -387,5 +397,5 @@ elbo_monitoring_VEM<- function(hp_k,
 
   sum_corr_k <- sapply(names(m_k), floop3) %>% sum()
 
-  return(-sum_ll_k - sum_ll_i + sum_corr_k)
+  return( - sum_ll_k - sum_ll_i + sum_corr_k)
 }

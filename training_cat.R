@@ -376,6 +376,7 @@ train_magmaclust_cat <- function(data,
     for (k in 1:nb_cluster) {
       ## mu_k[[ID_k[k]]] <- tibble::tibble("Output"= rmvnorm(1, mean =   rep(0, length(all_input)),  diag(length(all_input)))%>% as.vector(),
       ##                               all_inputs)
+      #mu_k[[ID_k[k]]] <- tibble::tibble("Output"= base::sample(c(-1,0, 1), length(all_input), replace = TRUE), all_inputs)
       mu_k[[ID_k[k]]] <- tibble::tibble("Output"= rep(0, length(all_input)), all_inputs)
     }
     cat(
@@ -452,9 +453,9 @@ train_magmaclust_cat <- function(data,
   # Initialize the affectations variables
 
   old_z <- simu_affectations(mixture)
-  while (sum(old_z[,"K1"]) < 2 |sum(old_z[,"K2"]) < 2 | sum(old_z[,"K3"]) < 2){
-    old_z <- simu_affectations(mixture)
-  }
+  #while (sum(old_z[,"K1"]) < 2 |sum(old_z[,"K2"]) < 2 | sum(old_z[,"K3"]) < 2){
+  # old_z <- simu_affectations(mixture)
+  #}
 
   hp_k[["prop_mixture"]] <- old_z %>%
     dplyr::select(-.data$ID) %>%
@@ -473,7 +474,7 @@ train_magmaclust_cat <- function(data,
     # run the SEM algorithm in case of categorial for MagmaclustR
 
     ## SE-Step of MagmaClust
-    post <- se_step(
+    post <- se_step2(
       data,
       mu_k,
       m_k,
@@ -506,7 +507,7 @@ train_magmaclust_cat <- function(data,
     }
 
     ## SM-Step of MagmaClsut
-    new_hp <- sm_step(post$y_star,
+    new_hp <- sm_step2(post$y_star,
                        hp_k,
                        hp_i,
                        list_latents = list("mu"= post$mu,"Z"= post$Z),

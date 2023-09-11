@@ -34,7 +34,7 @@
 #'
 #' @examples
 #' TRUE
-se_step<- function(db,
+se_step2<- function(db,
                     mu_prior,
                     m_k,
                     kern_k,
@@ -61,6 +61,7 @@ se_step<- function(db,
     dplyr::pull(.data$prop_mixture, name = .data$ID)
 
   ## Format a sequence of inputs for all clusters
+
   t_clust <- tidyr::expand_grid("ID" = names(m_k),
                                 all_inputs )
 
@@ -77,9 +78,9 @@ se_step<- function(db,
 
   ID_i<-  db$ID %>% unique()
   ID_k <- names(m_k)
-  ## Compute all the inverse covariance matrices
-  list_inv_k <- list_kern_to_inv(t_clust, kern_k, hp_k, pen_diag)
-  list_inv_i <- list_kern_to_inv(db, kern_i, hp_i, pen_diag)
+
+  ## Compute all covariance matrices for each individual
+
   list_cov_i<-  list_kern_to_cov(db, kern_i, hp_i)
 
 
@@ -135,14 +136,18 @@ se_step<- function(db,
 
   y_star <-do.call(dplyr::bind_rows,lapply(ID_i, floop4))
 
+  ## Compute all the inverse covariance matrices
 
   list_inv_i <- list_kern_to_inv(y_star, kern_i, hp_i, pen_diag)
+  list_inv_k <- list_kern_to_inv(t_clust, kern_k, hp_k, pen_diag)
+
   ## Create a named list of Output values for all individuals
 
   list_output_i <- base::split(y_star$Output, list(y_star$ID))
 
 
   ## Update each mu_k parameters for each cluster ##
+
   floop <- function(k) {
     post_inv <- list_inv_k[[k]]
     z_k <- old_z %>% dplyr:: select(.data$ID,k)
@@ -204,9 +209,8 @@ se_step<- function(db,
     m_k<- mean_k[[k]]%>% dplyr::pull(.data$Output)
     c_k<-cov_k[[k]]
 
-    mu_simule<- rmvnorm(1,m_k,c_k)%>% as.vector()
-    mu_simul<- tibble::tibble(all_inputs,
-                              "Output" = mu_simule)
+    mu_simule <- mvtnorm :: rmvnorm(1, m_k, c_k, method = "chol" ) %>% as.vector()
+    mu_simul  <-  tibble :: tibble(all_inputs, "Output" = mu_simule)
   }
   mu_k<- lapply(ID_k, floop3)
 
@@ -216,18 +220,30 @@ se_step<- function(db,
 
   ## Update mixture (skip first iteration to avoid bad HP initialisation issues)
 
-  mixture <- update_mixture(    y_star,
-                                mu_k,
-                                cov_k = NULL,
-                                hp_i,
-                                kern_i,
-                                prop_mixture_k,
-                                pen_diag,
-                                categorial=TRUE)
+  ## Update mixture (skip first iteration to avoid bad HP initialisation issues)
+  if(iter == 1){
+    mixture <- old_z
+    Z <- old_z
+  }else{
+    mixture <- update_mixture(     y_star,
+                                   mu_k,
+                                   cov_k = NULL,
+                                   hp_i,
+                                   kern_i,
+                                   prop_mixture_k,
+                                   pen_diag,
+                                   categorial=TRUE)
 
-  # simulate z_i variables
+    # simulate z_i variables
 
-  Z <- simu_affectations(mixture)
+    Z <- simu_affectations(mixture)
+
+    # make sure that there is not absorbance
+
+    while (sum(Z[,"K1"]) < 1 |sum(Z[,"K2"]) < 1 | sum(Z[,"K3"]) < 1) {
+      Z <- simu_affectations(mixture)
+    }
+  }
 
 
 
@@ -283,7 +299,7 @@ se_step<- function(db,
 #'
 #' @examples
 #' TRUE
-sm_step <- function(db,
+sm_step2 <- function(db,
                      old_hp_k,
                      old_hp_i,
                      list_latents,
@@ -360,7 +376,7 @@ sm_step <- function(db,
       stats::optim(
         par = par_i,
         fn = elbo_clust_multi_GP,
-        #gr = gr_clust_multi_GP,
+        gr = gr_clust_multi_GP,
         db = db_i,
         hyperpost = NULL,
         kern = kern_i,
@@ -419,14 +435,12 @@ sm_step <- function(db,
       db_k <- list_latents$mu[[k]]
       ## Extract the mean values associated with the k-th specific inputs
       mean_k <- m_k[[k]]
-      ## Extract the covariance values associated with the k-th specific inputs
-      post_cov_k <- list_mu_param$cov[[k]]
 
       ## Optimise hyper-parameters of the processes of each cluster
       stats::optim(
         par = par_k,
         fn=logL_GP_mod,
-        #gr = gr_GP_mod,
+        gr = gr_GP_mod,
         db = db_k,
         mean = mean_k,
         kern = kern_k,
@@ -516,6 +530,7 @@ update_mixture <- function(db,
 
       ## Create a vector of proportion with the clusters in adequate order
       vec_prop[c_k] <- prop_mixture[[k]]
+
       if(categorial){
         ## Extract the mean processe values associated with the i-th
         ## specific inputs
@@ -604,7 +619,7 @@ simu_affectations<- function(mixture){
       unlist() %>% as.numeric()
 
     ## Extract the covariance values associated with the i-th specific inputs
-    mat_elbo[, c_i] <- rmultinom(1,1,prob = tau_i)
+    mat_elbo[, c_i] <- stats :: rmultinom(1, 1, prob = tau_i)
 
   }
   mat_elbo %>% `rownames<-`(ID_k) %>% t() %>% round(5) %>%
